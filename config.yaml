@@ -2,13 +2,16 @@
 
 device: "cuda:0" #cpu
 imgsz: 640
-conf: 0.90
+conf: 0.4
 source: "AVL.mp4"
 source_type: "Webcam" #Image # Video # Webcam -> camera input
-save: True
+save: False
 save_crop: False
 show_results: True
 classes: [0] # means detect only people
+fps: 15 # frames per second -> for camera -. check the frame rate of the camera
+rate: 15 # ros rate -> close to the frame rate of the camera
+bbox: 'xyxy'       # format for bbox xyxy,xywh,xywhn,xyxyn
 
  
 

@@ -1,7 +1,11 @@
 
 import cv2
+import rospy
+from std_msgs.msg import String 
+from geometry_msgs.msg import Point, PoseArray, Pose,Quaternion
 from ultralytics import YOLO
 import yaml
+from std_msgs.msg import Header
 
 
 # Read config file
@@ -12,6 +16,12 @@ print(config)
 # Initialize YOLOv8
 yolo = YOLO("yolov8n.pt").to(config["device"])
 print("YOLOv8 initialized...")
+
+
+# Prepare ROS
+pub = rospy.Publisher('object_detections', PoseArray, queue_size=10)
+rospy.init_node('yolov8', anonymous=True)
+rate = rospy.Rate(config['rate']) 
 
 
 if config['source_type'] == 'Image':
@@ -54,27 +64,41 @@ elif config['source_type'] == 'Webcam' or config['source_type'] == 'Video':
     else:
 
         cap = cv2.VideoCapture(0)
+    
+    # check the camera fps and set it to config fps 
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.set(cv2.CAP_PROP_FPS, config['fps'])
+    print("FPS: ", fps,cap.get(cv2.CAP_PROP_FPS))
 
     while cap.isOpened():
 
         # Read a frame from the webcam
-
         success, frame = cap.read()
-
-        print(success)
-
+        frame_id = 0
         if success:
 
             # Run YOLOv8 inference on the frame
+            results = yolo.predict(source = frame,classes=config['classes'],conf = config['conf'],save = config['save'], device=config['device'],imgsz=config['imgsz'],save_crop=config['save_crop'])
+            # Create a PoseArray message
+            pose_array_msg = PoseArray()
+            pose_array_msg.header = Header()
+            pose_array_msg.header.stamp = rospy.Time.now()
+            pose_array_msg.header.frame_id = str(frame_id)
+            # results is for all detections more info -> https://docs.ultralytics.com/reference/engine/results/#ultralytics.engine.results.Results
+            # results contains boxes and other info for all classes. Box has the following attributes ->xyxy,conf,cls,id,xywh,xywhn,xyxyn,data ->cls is class and conf is detection confidence
 
-            #results = model(frame)
+            # Use list comprehension to construct Pose messages and assign to poses field  - > the four value is put on orientation field
+            for pedes in results:
+                # To change to cpu use bbox[0].cpu() instead of bbox[0]
 
-            results = yolo.predict(source = frame,classes=config['classes'],save = config['save'], device=config['device'],imgsz=config['imgsz'],save_crop=config['save_crop'])
-
-            # check if there are people
-            # for r in results:
-            print(results)  # print the Boxes object containing the detection bounding boxes
-
+                # Fill pose array
+                pose_array_msg.poses = [Pose(position=Point(x=bbox[0], 
+                                                            y=bbox[1], 
+                                                            z=bbox[2]),
+                                            orientation= Quaternion(x=bbox[3], y=0.0, z=0.0, w=1.0)) 
+                                        for bbox in getattr(pedes.boxes, config['bbox'])]
+            
+            print(pose_array_msg)
             if config['show_results']:
 
                 # Visualize the results on the frame
@@ -90,6 +114,9 @@ elif config['source_type'] == 'Webcam' or config['source_type'] == 'Video':
                 if cv2.waitKey(1) & 0xFF == ord("q"):
 
                     break
+            pub.publish(pose_array_msg)
+            rate.sleep()
+            frame_id += 1
 
         else:
 
